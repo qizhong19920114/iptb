@@ -1,4 +1,4 @@
-all: ipfslocal ipfsdocker
+all: ipfslocal ipfsdocker ipfsbrowser
 
 ipfslocal:
 	gx-go rw
@@ -12,4 +12,11 @@ ipfsdocker:
 	gx-go uw
 CLEAN += dockeripfs.so
 
-.PHONY: all ipfslocal ipfsdocker
+ipfsbrowser:
+	make -C browser
+	gx-go rw
+	(cd browser; go build -buildmode=plugin -o ../../browseripfs.so)
+	gx-go uw
+CLEAN += browseripfs.so
+
+.PHONY: all ipfslocal ipfsdocker ipfsbrowser

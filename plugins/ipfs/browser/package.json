@@ -1,0 +1,20 @@
+{
+  "name": "iptb-ipfs-browser",
+  "version": "1.0.0",
+  "main": "src/server.js",
+  "license": "MIT",
+  "dependencies": {
+    "hapi": "^16.6.3",
+    "hapi-set-header": "^1.0.2",
+    "ipfs-postmsg-proxy": "^3.0.0",
+    "multiaddr": "^5.0.0",
+    "ipfs": "^0.31.7",
+    "ws": "^6.0.0"
+  },
+  "devDependencies": {
+    "json-loader": "^0.5.7",
+    "raw-loader": "^0.5.1",
+    "webpack": "^4.16.5",
+    "webpack-cli": "^3.1.0"
+  }
+}

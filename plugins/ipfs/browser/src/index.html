@@ -1,0 +1,83 @@
+<html>
+  <head>
+    <title>IPFS</title>
+  </head>
+  <body>
+    <script src="./postmsg.bundle.js"></script>
+    <script src="./ipfs.js"></script>
+    <script>
+      const socket = new WebSocket(`ws://${window.location.host}`);
+
+      socket.addEventListener('message', ev => {
+        const msg = JSON.parse(ev.data)
+
+        if (msg.__controller) {
+          switch(msg.__type) {
+            case 'SETUP':
+              start(msg.__payload, socket)
+            break;
+          }
+        }
+      })
+
+      function start(config, socket) {
+        // Create the IPFS node instance
+        const ipfs = window.ipfs = new Ipfs({
+          EXPERIMENTAL: {
+            pubsub: true
+          },
+          preload: {
+            enabled: false
+          },
+          config,
+          libp2p: {
+            config: {
+              peerDiscovery: {
+                bootstrap: {
+                  enabled: false
+                },
+                webRTCStar: {
+                  enabled: false
+                },
+                websocketStar: {
+                  enabled: false
+                }
+              },
+              EXPERIMENTAL: {
+                dht: false,
+                pubsub: true
+              }
+            }
+          }
+        })
+
+        const fnmap = new Map()
+
+        ipfs.once('ready', async () => {
+          console.log('IPFS node is ready')
+
+          createProxyServer(() => ipfs, {
+            postMessage: msg => {
+              socket.send(JSON.stringify(msg))
+            },
+            addListener: (name, fn) => {
+              const cb = ev => fn({ ...ev, data: JSON.parse(ev.data) })
+
+              fnmap.set(fn, cb)
+
+              socket.addEventListener(name, cb)
+            },
+            removeListener: (name, fn) => {
+              socket.removeEventListener(name, fnmap.get(fn))
+            }
+          })
+
+          socket.send(JSON.stringify({
+            __controller: true,
+            __type: 'READY',
+          }))
+        })
+      }
+    </script>
+  </body>
+</html>
