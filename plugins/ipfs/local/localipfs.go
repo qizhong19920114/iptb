@@ -13,12 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ipfs/go-cid"
-	config "github.com/ipfs/go-ipfs-config"
-	serial "github.com/ipfs/go-ipfs-config/serialize"
 	"github.com/ipfs/iptb/plugins/ipfs"
 	"github.com/ipfs/iptb/testbed/interfaces"
 	"github.com/ipfs/iptb/util"
+
+	"github.com/ipfs/go-cid"
+	config "github.com/ipfs/go-ipfs-config"
+	serial "github.com/ipfs/go-ipfs-config/serialize"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/pkg/errors"
 )
@@ -32,6 +33,7 @@ type LocalIpfs struct {
 	peerid    *cid.Cid
 	apiaddr   multiaddr.Multiaddr
 	swarmaddr multiaddr.Multiaddr
+	binary    string
 	mdns      bool
 }
 
@@ -42,9 +44,16 @@ var GetAttrList testbedi.GetAttrListFunc
 func init() {
 	NewNode = func(dir string, attrs map[string]string) (testbedi.Core, error) {
 		mdns := false
+		binary := ""
 
-		if _, err := exec.LookPath("ipfs"); err != nil {
-			return nil, err
+		var ok bool
+
+		if binary, ok = attrs["binary"]; !ok {
+			var err error
+			binary, err = exec.LookPath("ipfs")
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		apiaddr, err := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/0")
@@ -83,6 +92,7 @@ func init() {
 			dir:       dir,
 			apiaddr:   apiaddr,
 			swarmaddr: swarmaddr,
+			binary:    binary,
 			mdns:      mdns,
 		}, nil
 
@@ -109,7 +119,7 @@ func GetMetricDesc(attr string) (string, error) {
 /// TestbedNode Interface
 
 func (l *LocalIpfs) Init(ctx context.Context, agrs ...string) (testbedi.Output, error) {
-	agrs = append([]string{"ipfs", "init"}, agrs...)
+	agrs = append([]string{l.binary, "init"}, agrs...)
 	output, oerr := l.RunCmd(ctx, nil, agrs...)
 	if oerr != nil {
 		return nil, oerr
@@ -122,7 +132,7 @@ func (l *LocalIpfs) Init(ctx context.Context, agrs ...string) (testbedi.Output, 
 
 	lcfg := icfg.(*config.Config)
 
-	lcfg.Bootstrap = nil
+	lcfg.Bootstrap = []string{}
 	lcfg.Addresses.Swarm = []string{l.swarmaddr.String()}
 	lcfg.Addresses.API = l.apiaddr.String()
 	lcfg.Addresses.Gateway = ""
@@ -148,7 +158,7 @@ func (l *LocalIpfs) Start(ctx context.Context, wait bool, args ...string) (testb
 
 	dir := l.dir
 	dargs := append([]string{"daemon"}, args...)
-	cmd := exec.Command("ipfs", dargs...)
+	cmd := exec.Command(l.binary, dargs...)
 	cmd.Dir = dir
 
 	cmd.Env, err = l.env()
@@ -296,22 +306,19 @@ func (l *LocalIpfs) Connect(ctx context.Context, tbn testbedi.Core) error {
 		return err
 	}
 
-	output, err := l.RunCmd(ctx, nil, "ipfs", "swarm", "connect", swarmaddrs[0])
+	for _, addr := range swarmaddrs {
+		output, err := l.RunCmd(ctx, nil, l.binary, "swarm", "connect", addr)
 
-	if err != nil {
-		return err
-	}
-
-	if output.ExitCode() != 0 {
-		out, err := ioutil.ReadAll(output.Stderr())
 		if err != nil {
 			return err
 		}
 
-		return fmt.Errorf("%s", string(out))
+		if output.ExitCode() == 0 {
+			return nil
+		}
 	}
 
-	return nil
+	return fmt.Errorf("Could not connect using any address")
 }
 
 func (l *LocalIpfs) Shell(ctx context.Context, nodes []testbedi.Core) error {
