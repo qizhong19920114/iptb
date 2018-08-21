@@ -283,22 +283,19 @@ func (l *DockerIpfs) Connect(ctx context.Context, n testbedi.Core) error {
 		return err
 	}
 
-	output, err := l.RunCmd(ctx, nil, "ipfs", "swarm", "connect", swarmaddrs[1])
+	for _, addr := range swarmaddrs {
+		output, err := l.RunCmd(ctx, nil, "ipfs", "swarm", "connect", addr)
 
-	if err != nil {
-		return err
-	}
-
-	if output.ExitCode() != 0 {
-		out, err := ioutil.ReadAll(output.Stderr())
 		if err != nil {
 			return err
 		}
 
-		return fmt.Errorf("%s", string(out))
+		if output.ExitCode() == 0 {
+			return nil
+		}
 	}
 
-	return nil
+	return fmt.Errorf("Could not connect using any address")
 }
 
 func (l *DockerIpfs) Shell(ctx context.Context, nodes []testbedi.Core) error {
