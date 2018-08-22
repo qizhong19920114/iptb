@@ -10,18 +10,14 @@ const Hapi = require('hapi')
 const multiaddr = require('multiaddr')
 const setHeader = require('hapi-set-header')
 
-const { postmsgJS, indexHTML } = require('./assets')
+const { postmsgJS, indexHTML, ipfsJS } = require('./assets')
 
-const hash = process.argv[2]
-const version = process.argv[3]
-const gateway = process.argv[4]
-
-main(`${process.cwd()}`, gateway, hash, version).catch(err =>  {
+main(process.env.IPFS_PATH || process.cwd()).catch(err =>  {
   console.error(err)
   process.exit(1)
 })
 
-function HapiAPI(config, ipfsJS) {
+function HapiAPI(config) {
   this.server = undefined
   this.proxySocket = undefined
 
@@ -120,18 +116,6 @@ function HapiAPI(config, ipfsJS) {
 }
 
 async function main(repopath, gateway, hash, version) {
-  if (!hash) {
-    throw new Error('Not enough information to serve jsipfs, missing hash')
-  }
-
-  if (!version) {
-    throw new Error('Not enough information to serve jsipfs, missing version')
-  }
-
-  const { address: gwaddress, port: gwport } = multiaddr(gateway).nodeAddress()
-
-  gateway = `http://${gwaddress}:${gwport}`
-
   let config
 
   try {
@@ -146,27 +130,7 @@ async function main(repopath, gateway, hash, version) {
     throw new Error(`Could not parse config ${err.message}`)
   }
 
-  const ipfsjspath = `${hash}/${version}/dist/index${process.env.DEBUG ? '.min' : ''}.js`
-
-  let ipfsJS = () => {
-    const pass = new PassThrough()
-    http.get(`${gateway}/ipfs/${ipfsjspath}`, res => {
-      res.pipe(pass)
-    })
-
-    return pass
-  }
-
-  try {
-    await p(cb => fs.access(ipfsjspath, cb))
-    ipfsJS = () => {
-      return fs.createReadStream(ipfsjspath)
-    }
-  } catch (err) {
-    // ignore
-  }
-
-  const api = new HapiAPI(config, ipfsJS)
+  const api = new HapiAPI(config)
 
   await p(api.start)
 

@@ -34,9 +34,7 @@ type BrowserIpfs struct {
 	repobuilder string
 	apiaddr     multiaddr.Multiaddr
 	swarmaddr   multiaddr.Multiaddr
-	location    string
-	version     string
-	gateway     multiaddr.Multiaddr
+	source      string
 }
 
 var NewNode testbedi.NewNodeFunc
@@ -81,11 +79,6 @@ func init() {
 			}
 		}
 
-		gateway, err := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/8080")
-		if err != nil {
-			return nil, err
-		}
-
 		var repobuilder string
 		if v, ok := attrs["repobuilder"]; ok {
 			repobuilder = v
@@ -98,18 +91,11 @@ func init() {
 			repobuilder = jsipfspath
 		}
 
-		var location string
-		if v, ok := attrs["location"]; ok {
-			location = v
+		var source string
+		if v, ok := attrs["source"]; ok {
+			source = v
 		} else {
-			return nil, fmt.Errorf("No `location` provided, to serve jsipfs versions from")
-		}
-
-		var version string
-		if v, ok := attrs["version"]; ok {
-			version = v
-		} else {
-			return nil, fmt.Errorf("No `version` provided, to use for jsipfs version")
+			return nil, fmt.Errorf("No `source` provided")
 		}
 
 		return &BrowserIpfs{
@@ -117,9 +103,7 @@ func init() {
 			apiaddr:     apiaddr,
 			swarmaddr:   swarmaddr,
 			repobuilder: repobuilder,
-			location:    location,
-			version:     version,
-			gateway:     gateway,
+			source:      source,
 		}, nil
 
 	}
@@ -168,13 +152,10 @@ func (l *BrowserIpfs) Init(ctx context.Context, agrs ...string) (testbedi.Output
 }
 
 func (l *BrowserIpfs) Start(ctx context.Context, wait bool, args ...string) (testbedi.Output, error) {
-	bundle, err := Bundle()
-	if err != nil {
-		return nil, err
-	}
+	var err error
 
 	dir := l.dir
-	cmd := exec.Command("node", "-", l.location, l.version, l.gateway.String())
+	cmd := exec.Command("node", l.source)
 	cmd.Dir = dir
 
 	cmd.Env, err = l.env()
@@ -192,7 +173,6 @@ func (l *BrowserIpfs) Start(ctx context.Context, wait bool, args ...string) (tes
 		return nil, err
 	}
 
-	cmd.Stdin = bundle
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
@@ -255,7 +235,7 @@ func (l *BrowserIpfs) Stop(ctx context.Context) error {
 		return err
 	}
 
-	return fmt.Errorf("Could not stop localipfs node with pid %d", pid)
+	return fmt.Errorf("Could not stop browseripfs node with pid %d", pid)
 }
 
 func (l *BrowserIpfs) RunCmd(ctx context.Context, stdin io.Reader, args ...string) (testbedi.Output, error) {
