@@ -5,25 +5,26 @@ const http = require('http')
 const { PassThrough } = require('stream')
 
 const WebSocket = require('ws')
-const { createProxyClient } = require('ipfs-postmsg-proxy')
 const Hapi = require('hapi')
-const multiaddr = require('multiaddr')
 const setHeader = require('hapi-set-header')
+const debug = require('debug')
+const multiaddr = require('multiaddr')
+const apiRoutes = require('ipfs/src/http/api/routes')
+const { createProxyClient } = require('ipfs-postmsg-proxy')
 
-const { postmsgJS, indexHTML, ipfsJS } = require('./assets')
+const assets = require('./assets')
 
 main(process.env.IPFS_PATH || process.cwd()).catch(err =>  {
   console.error(err)
   process.exit(1)
 })
 
-function HapiAPI(config) {
+function HttpAPI(config, routes) {
   this.server = undefined
-  this.proxySocket = undefined
-
   this.apiaddr = multiaddr(config.Addresses.API)
 
   this.start = (callback) => {
+    console.log('starting')
     this.server = new Hapi.Server({
       connections: {
         routes: {
@@ -36,12 +37,13 @@ function HapiAPI(config) {
       } : undefined
     })
 
+    const api = this.apiaddr.nodeAddress()
+
     // select which connection with server.select(<label>) to add routes
-    const { address, port } = this.apiaddr.nodeAddress()
     this.server.connection({
+      host: api.address,
+      port: api.port,
       labels: 'API',
-      host: address,
-      port,
     })
 
     this.server.ext('onRequest', (request, reply) => {
@@ -57,26 +59,7 @@ function HapiAPI(config) {
     })
 
     // load routes
-    require('ipfs/src/http/api/routes')(this.server)
-
-    // serve assets
-    this.server.route({
-      method: 'GET',
-      path: '/',
-      handler: (request, reply) => reply(indexHTML())
-    })
-
-    this.server.route({
-      method: 'GET',
-      path: '/postmsg.bundle.js',
-      handler: (request, reply) => reply(postmsgJS())
-    })
-
-    this.server.route({
-      method: 'GET',
-      path: '/ipfs.js',
-      handler: (request, reply) => reply(ipfsJS())
-    })
+    routes.forEach(r => r(this.server))
 
     // Set default headers
     setHeader(this.server,
@@ -99,11 +82,12 @@ function HapiAPI(config) {
         return callback(err)
       }
 
-      callback(null)
+      callback()
     })
   }
 
   this.stop = (callback) => {
+    console.log('stopping')
     this.server.stop(err => {
       if (err) {
         console.error('There were errors stopping')
@@ -118,6 +102,8 @@ function HapiAPI(config) {
 async function main(repopath, gateway, hash, version) {
   let config
 
+  console.log('reading config')
+
   try {
     config = fs.readFileSync(`${repopath}/config`)
   } catch (err) {
@@ -130,54 +116,118 @@ async function main(repopath, gateway, hash, version) {
     throw new Error(`Could not parse config ${err.message}`)
   }
 
-  const api = new HapiAPI(config)
+  const httpapi = new HttpAPI(config, [
+    (server) => apiRoutes(server),
+    (server) => {
+      // Currently serving everything off of the same connection
+      // that the API is running on
+      const apiserver = server.select('API')
+      const { postmsgJS, indexHTML, ipfsJS } = assets
 
-  await p(api.start)
+      apiserver.route({
+        method: 'GET',
+        path: '/',
+        handler: (request, reply) => reply(indexHTML())
+      })
+
+      apiserver.route({
+        method: 'GET',
+        path: '/postmsg.bundle.js',
+        handler: (request, reply) => reply(postmsgJS())
+      })
+
+      apiserver.route({
+        method: 'GET',
+        path: '/ipfs.js',
+        handler: (request, reply) => reply(ipfsJS())
+      })
+    }
+  ])
+
+  await p(httpapi.start)
 
   // Setup proxy socket
   new WebSocket.Server({
-    server: api.server.listener
+    server: httpapi.server.listener
   })
-  .on('connection', async (ws) => {
-    // We only accept a single connection
-    if (api.server.app.ipfs && !process.env.DEBUG) {
-      ws.close()
+  .on('connection', socket => {
+    console.log('new websocket connection')
+
+    // We only accept a single connection except when
+    // the debug env is set to allow for refreshing of
+    // the browser
+    if (httpapi.server.app.ipfs != undefined) {
+      console.log('websocket proxy already started, closing new connection')
+      return socket.close()
     }
 
+    // Set instance to another falsey value, but not undefined so that
+    // our middleware hook will error correctly till the proxy is setup
+    httpapi.server.app.ipfs = null
+
+    // Websockets can only send buffer like data, but postmsg-proxy
+    // works on object data. For every listener we have to wrap it
+    // in a function which parses the buffer prior to passing it into
+    // the original listener. This maps contains the mapping so that
+    // we can properly remove listeners
     const fnmap = new Map()
 
-    ws.send(JSON.stringify({
+    // Send the initial setup with the ipfs config to the browser
+    socket.send(JSON.stringify({
       __controller: true,
       __type: 'SETUP',
       __payload: config,
     }))
 
-    ws.addEventListener('message', ev => {
+    socket.addEventListener('close', () => {
+      console.log('websocket connection closed')
+      fnmap.clear()
+      httpapi.server.app.ipfs = undefined
+    })
+
+    // One time message receiver that constructs the
+    // postmsg-proxy client once the ipfs node in the browser is
+    // running
+    socket.addEventListener('message', ev => {
+      if (httpapi.server.app.ipfs) {
+        return
+      }
+
       const msg = JSON.parse(ev.data)
 
       if (msg.__controller && msg.__type == 'READY') {
-        api.server.app.ipfs = createProxyClient({
+        console.log('creating new ipfs websocket proxy')
+        httpapi.server.app.ipfs = createProxyClient({
           postMessage: msg => {
-            ws.send(JSON.stringify(msg))
+            socket.send(JSON.stringify(msg))
           },
           addListener: (name, fn) => {
             const cb = ev => fn({ ...ev, data: JSON.parse(ev.data) })
 
             fnmap.set(fn, cb)
 
-            ws.addEventListener(name, cb)
+            socket.addEventListener(name, cb)
           },
           removeListener: (name, fn) => {
-            ws.removeEventListener(name, fnmap.get(fn))
+            socket.removeEventListener(name, fnmap.get(fn))
           }
         })
       }
     })
   })
 
-  const apiserver = api.server.select('API')
+  const apiserver = httpapi.server.select('API')
 
-  await p(cb => fs.createWriteStream('./api').on('error', cb).end(apiserver.info.ma, cb))
+  console.log('api running on %s', apiserver.info.ma)
+  console.log('writing api file to repo')
+
+  await p(cb => {
+    fs.createWriteStream('./api')
+      .on('error', cb)
+      .end(apiserver.info.ma, cb)
+  })
+
+  console.log('starting browser')
 
   const browser = spawn('google-chrome-stable', [
     !process.env.DEBUG ? '--headless' : '',
@@ -195,13 +245,16 @@ async function main(repopath, gateway, hash, version) {
   ])
 
   browser.on('exit', async (code, signal) => {
-    await p(api.stop)
+    console.log('browser exited')
+
+    await p(httpapi.stop)
     await p(cb => fs.unlink('./api', cb))
 
     process.exit(code)
   })
 
   const signalHandler = signal => {
+    console.log('received signal %s', signal)
     browser.kill(signal)
   }
 
