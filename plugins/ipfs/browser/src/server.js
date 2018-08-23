@@ -13,6 +13,8 @@ const apiRoutes = require('ipfs/src/http/api/routes')
 const { createProxyClient } = require('ipfs-postmsg-proxy')
 
 const assets = require('./assets')
+const chrome = require('./chrome')
+const chromepath = chrome.binary()
 
 main(process.env.IPFS_PATH || process.cwd()).catch(err =>  {
   console.error(err)
@@ -229,20 +231,7 @@ async function main(repopath, gateway, hash, version) {
 
   console.log('starting browser')
 
-  const browser = spawn('google-chrome-stable', [
-    !process.env.DEBUG ? '--headless' : '',
-    `--user-data-dir=${process.cwd()}/data`,
-    '--no-default-browser-check',
-    '--no-first-run',
-    '--disable-default-apps',
-    '--disable-popup-blocking',
-    '--disable-translate',
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
-    '--disable-device-discovery-notifications',
-    '--remote-debugging-port=0',
-    `${apiserver.info.uri}`
-  ])
+  const browser = spawn(chromepath, chrome.options(`${process.cwd()}/data`, !process.env.DEBUG, apiserver.info.uri))
 
   browser.on('exit', async (code, signal) => {
     console.log('browser exited')
