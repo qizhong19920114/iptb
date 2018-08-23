@@ -13,7 +13,6 @@ ipfsdocker:
 CLEAN += dockeripfs.so
 
 ipfsbrowser:
-	make -C browser
 	gx-go rw
 	(cd browser; go build -buildmode=plugin -o ../../browseripfs.so)
 	gx-go uw
