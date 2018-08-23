@@ -1,6 +1,8 @@
 const which = require('which')
 const fs = require('fs')
 
+// Credit: https://github.com/karma-runner/karma-chrome-launcher
+
 module.exports.binary = () => {
   const lookups = {
     linux: () => linux(['google-chrome', 'google-chrome-stable']),
@@ -12,7 +14,7 @@ module.exports.binary = () => {
     return lookups[process.platform]()
   }
 
-  throw new Error('Unknown arch %s', arch)
+  throw new Error('Unknown platform %s', arch)
 }
 
 module.exports.options = (datadir, headless, uri) => {
