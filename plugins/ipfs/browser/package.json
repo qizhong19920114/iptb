@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "license": "MIT",
+  "scripts": {
+    "build:vendor": "webpack-cli --config vendor.config.js",
+    "build:server": "webpack-cli --config server.config.js"
+  },
   "dependencies": {
     "hapi": "^16.6.3",
     "hapi-set-header": "^1.0.2",

@@ -122,7 +122,7 @@ async function main(repopath, gateway, hash, version) {
       // Currently serving everything off of the same connection
       // that the API is running on
       const apiserver = server.select('API')
-      const { postmsgJS, indexHTML, ipfsJS } = assets
+      const { vendorJS, indexHTML, ipfsJS } = assets
 
       apiserver.route({
         method: 'GET',
@@ -132,8 +132,8 @@ async function main(repopath, gateway, hash, version) {
 
       apiserver.route({
         method: 'GET',
-        path: '/postmsg.bundle.js',
-        handler: (request, reply) => reply(postmsgJS())
+        path: '/vendor.js',
+        handler: (request, reply) => reply(vendorJS())
       })
 
       apiserver.route({
